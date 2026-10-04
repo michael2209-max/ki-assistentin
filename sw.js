@@ -4,7 +4,7 @@
  * Bei Änderungen an Dateien CACHE-Version erhöhen.
  * © 2026 Michael Sedlazek
  */
-const CACHE = 'ava-v1';
+const CACHE = 'ava-v2'; // v2: neues Aussehen (blond, Minirock), Outfit-Modell, neues Licht
 const ASSETS = [
   './', './index.html', './manifest.webmanifest', './css/style.css',
   './js/main.js', './js/avatar.js', './js/responder.js', './js/speech.js',
@@ -12,7 +12,7 @@ const ASSETS = [
   './vendor/three/addons/loaders/FBXLoader.js', './vendor/three/addons/libs/fflate.module.js',
   './vendor/three/addons/curves/NURBSCurve.js', './vendor/three/addons/curves/NURBSUtils.js',
   './vendor/three/addons/environments/RoomEnvironment.js',
-  './assets/model/ava.fbx',
+  './assets/model/ava.fbx', './assets/model/ava_outfit.fbx',
   './assets/model/head_color.jpg', './assets/model/head_normal.jpg', './assets/model/head_spec.jpg',
   './assets/model/body_color.jpg', './assets/model/body_normal.jpg', './assets/model/body_spec.jpg',
   './assets/model/opacity_color.png',

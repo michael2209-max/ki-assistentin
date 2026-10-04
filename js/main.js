@@ -16,39 +16,59 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true,
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2)); // Handy: max. 2× für flüssige FPS
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.0;
 
 const scene = new THREE.Scene();
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture; // weiche, realistische Umgebungsreflexe
-scene.environmentIntensity = 0.55;
+scene.environmentIntensity = 0.45;
+scene.environmentRotation = new THREE.Euler(0, 0.6, 0);
 
-// Studio-Licht: warmes Führungslicht, kühles Fülllicht, farbiges Kantenlicht passend zum Hintergrund
-const key = new THREE.DirectionalLight(0xfff1e6, 2.2); key.position.set(80, 220, 160); scene.add(key);
-const fill = new THREE.DirectionalLight(0xc9d4ff, 0.7); fill.position.set(-150, 120, 80); scene.add(fill);
-const rim = new THREE.DirectionalLight(0xc6a8ff, 1.6); rim.position.set(-60, 200, -180); scene.add(rim);
-const rim2 = new THREE.DirectionalLight(0xffa8c8, 0.9); rim2.position.set(120, 160, -150); scene.add(rim2);
-scene.add(new THREE.HemisphereLight(0xd8d0ff, 0x2a2340, 0.35));
+// Weiches, schmeichelndes 3-Punkt-Licht (Beauty-/Porträt-Setup):
+//  Key  – warm, leicht seitlich von oben vorne (modelliert Wangenknochen, Schatten bleiben sanft)
+//  Fill – kühl-neutral von der anderen Seite, hellt Schatten auf (Verhältnis ~1:3)
+//  Rim  – zwei dezente Kantenlichter von hinten, lösen Haare/Schultern vom Hintergrund
+//  Hemi + Front-Glow – Grundhelligkeit, Lichtreflex in den Augen, gleichmäßiger Teint
+const key = new THREE.DirectionalLight(0xffeee0, 1.85); key.position.set(110, 240, 190); scene.add(key);
+const fill = new THREE.DirectionalLight(0xe4e8ff, 0.75); fill.position.set(-170, 150, 120); scene.add(fill);
+const rim = new THREE.DirectionalLight(0xf4dcff, 1.1); rim.position.set(-110, 210, -190); scene.add(rim);
+const rim2 = new THREE.DirectionalLight(0xffe2cc, 0.8); rim2.position.set(130, 190, -170); scene.add(rim2);
+const front = new THREE.PointLight(0xfff4ec, 0.35, 0, 0); scene.add(front); // folgt der Kamera (Catchlight)
+scene.add(new THREE.HemisphereLight(0xf2ecff, 0x3a2e48, 0.45));
 
 const camera = new THREE.PerspectiveCamera(26, 1, 5, 2000);
 const camLook = new THREE.Vector3(0, 130, 0);
 const headPos = new THREE.Vector3(0, 160, 0);
+
+/** Ansicht: 'portrait' (Kopf + Oberkörper, Standard) oder 'full' (ganze Figur). URL: ?view=full */
+let view = new URLSearchParams(location.search).get('view') === 'full' ? 'full' : 'portrait';
 
 /** Kamera so setzen, dass der Kopf im oberen Drittel ist und der Chat den Oberkörper nicht verdeckt. */
 function frameCamera() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
-  // Sichtbare Höhe (cm) – im Querformat etwas mehr Abstand
-  const visible = camera.aspect < 1 ? 94 : 76;
-  const dist = visible / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
-  camLook.set(0, headPos.y + 26 - visible / 2, 0);
-  camera.position.set(0, camLook.y + 6, dist);
+  if (view === 'full') {
+    // ganze Figur (Kopf ~ 165 cm, Füße bei 0): sichtbare Höhe abhängig vom Seitenverhältnis
+    const visible = Math.max(215, 100 / camera.aspect);
+    const dist = visible / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
+    camLook.set(0, headPos.y * 0.57, 0);              // Figur (Füße 0 … Scheitel ~170 cm) mittig
+    camera.position.set(0, camLook.y + 8, dist);
+  } else {
+    // Sichtbare Höhe (cm) – im Querformat etwas mehr Abstand
+    const visible = camera.aspect < 1 ? 94 : 76;
+    const dist = visible / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
+    camLook.set(0, headPos.y + 26 - visible / 2, 0);
+    camera.position.set(0, camLook.y + 6, dist);
+  }
   camera.lookAt(camLook);
   camera.updateProjectionMatrix();
+  front.position.copy(camera.position).add(new THREE.Vector3(0, 30, 0));
 }
 window.addEventListener('resize', frameCamera);
 frameCamera();
+
+function setView(v) { view = v === 'full' ? 'full' : 'portrait'; frameCamera(); }
 
 /* ---------------------------------------------------------------------- */
 /* Avatar laden                                                            */
@@ -230,4 +250,4 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 }
 
 // Für Tests / Konsole
-window.ava = { avatar, camera, send, respond, setEmotion: (e, s) => avatar.setEmotion(e, s) };
+window.ava = { avatar, camera, send, respond, setView, setEmotion: (e, s) => avatar.setEmotion(e, s) };

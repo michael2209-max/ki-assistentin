@@ -1,8 +1,12 @@
 /**
  * avatar.js – Lädt die 3D-Figur und steuert alle Animationen.
  *
- * Modell: Microsoft Rocketbox "Business_Female_04" (MIT-Lizenz), Variante "_facial"
- * mit ARKit-/FACS-/Visem-Blendshapes und 3ds-Max-Biped-Skelett (Bip01_*).
+ * Modell: Microsoft Rocketbox (MIT-Lizenz), aus zwei Avataren mit identischem Biped-Skelett (Bip01_*)
+ * zusammengesetzt:
+ *   - ava.fbx        = "Female_Party_01_facial" → Kopf, blonde Haare, blaue Augen,
+ *                       ARKit-/FACS-/Visem-Blendshapes + Skelett (führend)
+ *   - ava_outfit.fbx = "Female_Party_02"        → Outfit: gemustertes Shirt mit Gürtel, schwarzer Minirock,
+ *                       Riemchensandalen (Arme/Beine) – wird an das Skelett von ava.fbx gebunden
  *
  * Animationsebenen (werden pro Frame addiert):
  *   1. Grundpose      – T-Pose wird beim Laden in eine entspannte Haltung gebracht
@@ -18,7 +22,7 @@ import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 
 const MODEL_DIR = './assets/model/';
 
-/** Texturen (aus den Original-TGA in JPG/PNG umgewandelt und für Handys verkleinert). */
+/** Texturen (aus den Original-TGA mit tools/prep_textures.py umgewandelt, angepasst und für Handys verkleinert). */
 const TEXTURES = {
   headColor: 'head_color.jpg', headNormal: 'head_normal.jpg', headSpec: 'head_spec.jpg',
   bodyColor: 'body_color.jpg', bodyNormal: 'body_normal.jpg', bodySpec: 'body_spec.jpg',
@@ -137,11 +141,14 @@ export class Avatar {
     // Alle im FBX eingebetteten Texturpfade (.tga) auf ein leeres PNG umleiten
     manager.setURLModifier((url) => (/\.tga$/i.test(url) ? EMPTY_PNG : url));
     const loader = new FBXLoader(manager);
-    const fbx = await loader.loadAsync(MODEL_DIR + 'ava.fbx', (e) => {
-      if (e.total) onProgress(0.75 * (e.loaded / e.total));
-    });
+    const prog = { head: 0, outfit: 0 };
+    const report = () => onProgress(0.7 * (prog.head * 0.8 + prog.outfit * 0.2));
+    const [fbx, outfitFbx] = await Promise.all([
+      loader.loadAsync(MODEL_DIR + 'ava.fbx', (e) => { if (e.total) { prog.head = e.loaded / e.total; report(); } }),
+      loader.loadAsync(MODEL_DIR + 'ava_outfit.fbx', (e) => { if (e.total) { prog.outfit = e.loaded / e.total; report(); } }),
+    ]);
 
-    const tex = await this._loadTextures((p) => onProgress(0.75 + 0.25 * p));
+    const tex = await this._loadTextures((p) => onProgress(0.7 + 0.3 * p));
 
     fbx.traverse((o) => {
       if (o.isBone) this.bones[o.name.replace('Bip01_', '')] = o;
@@ -150,11 +157,13 @@ export class Avatar {
     fbx.animations = []; // nur eine Dummy-"Take 001"
     this.root = fbx;
 
+    this._composeOutfit(fbx, outfitFbx);
     this._setupMaterials(tex);
     this._pruneMorphs();
     this._relaxPose();
 
     this.mesh.frustumCulled = false; // Skinned Mesh: Bounding-Box passt nach Pose nicht mehr
+    this.outfit.frustumCulled = false;
     this.scene.add(fbx);
     onProgress(1);
     return this;
@@ -176,30 +185,101 @@ export class Avatar {
     return out;
   }
 
+  /**
+   * Kopf-Modell (Party_01) + Outfit-Modell (Party_02) zu einer Figur zusammensetzen.
+   *  - Vom Kopf-Modell nur Kopf/Hals/Haare behalten (dessen Körper mit Shorts wird verworfen).
+   *  - Haut-Dreiecke des Kopf-Modells, die unter dem Shirt liegen (Schultern/Brust), entfernen –
+   *    sonst stechen sie am Kragen durch den Stoff.
+   *  - Vom Outfit-Modell nur den Körper (Shirt, Rock, Arme, Beine) behalten und an das Skelett
+   *    des Kopf-Modells binden (beide Skelette haben identische Bind-Posen → kein Versatz).
+   */
+  _composeOutfit(fbx, outfitFbx) {
+    fbx.updateMatrixWorld(true);
+    outfitFbx.updateMatrixWorld(true);
+    const isPart = (m, part) => m.name.toLowerCase().includes(part);
+    const neckY = this.bones.Neck.getWorldPosition(new THREE.Vector3()).y;
+    const v = new THREE.Vector3();
+
+    // Dreiecke einer Geometrie gefiltert neu indizieren (Gruppen je Material bleiben erhalten)
+    const filter = (mesh, keepTri) => {
+      const g = mesh.geometry, mats = [].concat(mesh.material);
+      const pos = g.attributes.position;
+      const at = (i) => (g.index ? g.index.getX(i) : i);
+      const idx = [], groups = [];
+      for (let mi = 0; mi < mats.length; mi++) {
+        const start = idx.length;
+        for (const gr of g.groups) {
+          if (gr.materialIndex !== mi) continue;
+          for (let i = gr.start; i < gr.start + gr.count; i += 3) {
+            const tri = [at(i), at(i + 1), at(i + 2)];
+            if (keepTri(mats[mi], tri, pos)) idx.push(...tri);
+          }
+        }
+        if (idx.length > start) groups.push({ start, count: idx.length - start, materialIndex: mi });
+      }
+      g.setIndex(idx);
+      g.clearGroups();
+      for (const gr of groups) g.addGroup(gr.start, gr.count, gr.materialIndex);
+    };
+
+    // Kopf-Modell: Körper weg, Haut unter dem Kragen weg
+    filter(this.mesh, (mat, tri, pos) => {
+      if (isPart(mat, 'body')) return false;
+      if (!isPart(mat, 'head')) return true; // Haare/Wimpern
+      let maxY = -Infinity, minAbsX = Infinity;
+      for (const i of tri) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(this.mesh.matrixWorld);
+        maxY = Math.max(maxY, v.y); minAbsX = Math.min(minAbsX, Math.abs(v.x));
+      }
+      return !(maxY < neckY - 6 || (maxY < neckY + 1 && minAbsX > 5));
+    });
+
+    // Outfit-Modell: nur Körper behalten, an Avas Skelett binden
+    let outfit = null;
+    outfitFbx.traverse((o) => { if (o.isSkinnedMesh && !outfit) outfit = o; });
+    filter(outfit, (mat) => isPart(mat, 'body'));
+    const byName = {};
+    fbx.traverse((o) => { if (o.isBone) byName[o.name] = o; });
+    const bones = outfit.skeleton.bones.map((b) => byName[b.name]);
+    if (bones.some((b) => !b)) throw new Error('Outfit-Skelett passt nicht zum Kopf-Modell');
+    outfit.bind(new THREE.Skeleton(bones, outfit.skeleton.boneInverses), outfit.bindMatrix);
+    outfit.name = 'outfit';
+    fbx.add(outfit); // gleiche lokale Transformation wie im eigenen FBX (beide Wurzeln identisch)
+    this.outfit = outfit;
+  }
+
   /** Phong-Materialien aus dem FBX durch physikalisch basierte Materialien ersetzen. */
   _setupMaterials(t) {
     const nScale = new THREE.Vector2(1, -1); // Normalmaps im DirectX-Format (Grün invertiert)
+    // Haut: Physical-Material mit warmem Sheen (Streulicht an Kanten) und einem Hauch
+    // Eigenleuchten aus der Farbtextur → wirkt wie leichte Subsurface-Streuung (weichere, wärmere Schatten).
     const skin = (map, normalMap, spec) => new THREE.MeshPhysicalMaterial({
-      map, normalMap, normalScale: nScale.clone().multiplyScalar(0.9),
-      roughness: 0.62, metalness: 0,
-      specularColorMap: spec, specularIntensity: 0.55,
-      sheen: 0.15, sheenRoughness: 0.8, sheenColor: new THREE.Color(0xffd9c9),
+      map, normalMap, normalScale: nScale.clone().multiplyScalar(0.75),
+      roughness: 0.58, metalness: 0,
+      specularColorMap: spec, specularIntensity: 0.5, specularColor: new THREE.Color(0xfff0ea),
+      sheen: 0.35, sheenRoughness: 0.6, sheenColor: new THREE.Color(0xff9c80),
+      emissive: 0xffffff, emissiveMap: map, emissiveIntensity: 0.04,
     });
-    const mats = [].concat(this.mesh.material).map((m) => {
-      const n = m.name.toLowerCase();
+    const convert = (m) => {
       let nm;
-      if (n.includes('head')) nm = skin(t.headColor, t.headNormal, t.headSpec);
-      else if (n.includes('body')) { nm = skin(t.bodyColor, t.bodyNormal, t.bodySpec); nm.roughness = 0.75; nm.sheen = 0.35; }
-      else {
-        // Haare, Wimpern, Augenbrauen – Alpha-Textur; alphaToCoverage = weiche Kanten mit MSAA
-        nm = new THREE.MeshStandardMaterial({ map: t.opacity, alphaTest: 0.3, alphaToCoverage: true,
-          side: THREE.DoubleSide, roughness: 0.55 });
+      if (m.name.toLowerCase().includes('head')) nm = skin(t.headColor, t.headNormal, t.headSpec);
+      else if (m.name.toLowerCase().includes('body')) {
+        // Körper = Stoff (Shirt/Rock) + Haut (Arme/Beine): etwas rauer, Sheen gibt Stoff-Glanz
+        nm = skin(t.bodyColor, t.bodyNormal, t.bodySpec);
+        nm.roughness = 0.7; nm.sheen = 0.45; nm.sheenRoughness = 0.5; nm.sheenColor.set(0xffc4b0);
+        nm.emissiveIntensity = 0.035;
+      } else {
+        // Haare, Wimpern – Alpha-Textur; alphaToCoverage = weiche Kanten mit MSAA; Sheen = seidiger Glanz
+        nm = new THREE.MeshPhysicalMaterial({ map: t.opacity, alphaTest: 0.35, alphaToCoverage: true,
+          side: THREE.DoubleSide, roughness: 0.55, metalness: 0, specularIntensity: 0.3,
+          sheen: 0.3, sheenRoughness: 0.4, sheenColor: new THREE.Color(0xffe6b8) });
       }
       nm.name = m.name;
       m.dispose();
       return nm;
-    });
-    this.mesh.material = mats;
+    };
+    this.mesh.material = [].concat(this.mesh.material).map(convert);
+    this.outfit.material = [].concat(this.outfit.material).map(convert);
   }
 
   /** Nicht benötigte Blendshapes entfernen (spart GPU-Speicher und Shader-Arbeit). */
