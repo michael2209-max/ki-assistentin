@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+  <meta name="theme-color" content="#14122b" />
+  <meta name="description" content="Ava – animierte 3D-KI-Assistentin (Prototyp)" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Ava" />
+  <title>Ava · KI-Assistentin</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" type="image/png" href="assets/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="assets/icons/icon-192.png" />
+  <link rel="stylesheet" href="css/style.css" />
+  <!-- three.js lokal (vendor/), keine CDN-Abhängigkeit -->
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }
+  </script>
+</head>
+<body>
+  <div id="bg"></div>
+  <canvas id="scene" aria-label="3D-Assistentin"></canvas>
+
+  <!-- Kopfzeile -->
+  <header class="topbar">
+    <div class="who">
+      <span class="dot" id="statusDot"></span>
+      <div>
+        <h1>Ava</h1>
+        <p id="status">wird geladen …</p>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="voiceBtn" class="icon-btn" aria-pressed="true" title="Sprachausgabe ein/aus" aria-label="Sprachausgabe ein/aus">🔊</button>
+    </div>
+  </header>
+
+  <!-- Emotionen zum Ausprobieren -->
+  <nav class="emotions" aria-label="Emotionen">
+    <button data-emotion="happy" title="Fröhlich">😊</button>
+    <button data-emotion="thinking" title="Nachdenklich">🤔</button>
+    <button data-emotion="surprised" title="Überrascht">😮</button>
+  </nav>
+
+  <!-- Chat -->
+  <section class="chat" aria-label="Chat">
+    <div id="messages" class="messages" role="log" aria-live="polite"></div>
+    <div class="chips" id="chips">
+      <button>Hallo!</button>
+      <button>Wie spät ist es?</button>
+      <button>Erzähl einen Witz</button>
+      <button>Was kannst du?</button>
+    </div>
+    <form id="form" class="composer" autocomplete="off">
+      <input id="input" type="text" enterkeyhint="send" placeholder="Schreib Ava eine Nachricht …" aria-label="Nachricht" maxlength="500" />
+      <button id="send" type="submit" aria-label="Senden">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6 3.4 10l12.6 2-12.6 2z"/></svg>
+      </button>
+    </form>
+  </section>
+
+  <!-- Ladeanzeige -->
+  <div id="loader" class="loader">
+    <div class="ring"></div>
+    <p>Ava wird geladen … <span id="pct">0</span>%</p>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
