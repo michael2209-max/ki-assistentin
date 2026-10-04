@@ -4,7 +4,7 @@
  * Bei Änderungen an Dateien CACHE-Version erhöhen.
  * © 2026 Michael Sedlazek
  */
-const CACHE = 'ava-v2'; // v2: neues Aussehen (blond, Minirock), Outfit-Modell, neues Licht
+const CACHE = 'ava-v3'; // v2: neues Aussehen (blond, Minirock), Outfit-Modell, neues Licht
 const ASSETS = [
   './', './index.html', './manifest.webmanifest', './css/style.css',
   './js/main.js', './js/avatar.js', './js/responder.js', './js/speech.js',
@@ -31,14 +31,18 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
-  e.respondWith(
-    caches.match(e.request, { ignoreSearch: true }).then((hit) => hit || fetch(e.request).then((res) => {
-      // neue gleichartige Dateien nachträglich cachen
-      if (res.ok && new URL(e.request.url).origin === location.origin) {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(e.request, copy));
-      }
-      return res;
-    }).catch(() => caches.match('./index.html')))
-  );
+  const url = new URL(e.request.url);
+  const fresh = e.request.mode === 'navigate' || /\.(html|js|css|webmanifest)$/.test(url.pathname);
+  const save = (res) => {
+    if (res.ok && url.origin === location.origin) { const c = res.clone(); caches.open(CACHE).then((k) => k.put(e.request, c)); }
+    return res;
+  };
+  if (fresh) {
+    // Code/HTML: zuerst Netz (immer aktuell), offline aus dem Cache
+    e.respondWith(fetch(e.request, { cache: 'no-store' }).then(save)
+      .catch(() => caches.match(e.request, { ignoreSearch: true }).then((h) => h || caches.match('./index.html'))));
+  } else {
+    // Modelle/Texturen: Cache-first
+    e.respondWith(caches.match(e.request, { ignoreSearch: true }).then((h) => h || fetch(e.request).then(save)));
+  }
 });

@@ -246,7 +246,10 @@ renderer.setAnimationLoop((time) => {
 /* PWA: Service Worker (Offline-Cache)                                     */
 /* ---------------------------------------------------------------------- */
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('SW:', e)));
+  // Neue Version aktiv -> einmal neu laden
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (!reloaded) { reloaded = true; location.reload(); } });
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then((r) => r.update()).catch((e) => console.warn('SW:', e)));
 }
 
 // Für Tests / Konsole
